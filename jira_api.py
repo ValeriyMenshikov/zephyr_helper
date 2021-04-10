@@ -1,8 +1,6 @@
 import pprint
 import requests
-import copy
 from requests import Response
-
 
 
 class ZephyrJira:
@@ -21,14 +19,19 @@ class ZephyrJira:
 
 class Case:
     CASE_MODEL = {
+        "id": None,
         "projectId": None,
         "name": None,
         "objective": None,
         "precondition": None,
         "owner": None,
+        "labels": None,
         "folderId": None,  # TODO ее надо получать с помощью метода
         "statusId": None,  # TODO 1625 automated #733 draft сделать класс с константами
         "priorityId": None,  # TODO Normal  сделать класс с приоритетами
+        "testData": None,
+        "parameters": None,
+        "estimatedTime": None,
         "testScript": {
             "stepByStepScript": {
                 "steps": [
@@ -49,6 +52,7 @@ class Case:
         self.__request = zephyr._session
         self.__project_id = zephyr.project_id
         self.__login = zephyr.login
+        self.__folder_id = None
 
     def search(self,
                name: str = '',
@@ -79,6 +83,9 @@ class Case:
         query = query + f'AND testCase.key = "{key}"' if key else query
         query = query + f'AND testCase.name = "{name}"' if name else query
 
+        if jql:
+            query = jql
+
         params = (
             ('archived', archived),
             ('fields', fields),
@@ -89,74 +96,71 @@ class Case:
         cases = self.__request.get(f'{self.__url}/rest/tests/1.0/testcase/search', params=params)
         return cases
 
-    def update(self, case_id: int = None, name: str = '', key: str = '') -> Response:
-        if case_id is None:
+    def update(self, key: str = '', **fields) -> Response:
+        """
+        Метод для обновления параметров существующего тесткейса, позволяет найти тест кейс по ключу например
+        PVZ-T1 и сразу обновить
+
+        :param key:                         str  -- ключевое слово для поиска тест кейса
+        :param componentId:                 int  -- поставить метку существующего компонента
+        :param estimatedTime:               int  -- время
+        :param id:                          int  -- id тесткейса
+        :param labels:                      list -- список меток тесткейса
+        :param name:                        str  -- название тесткейса
+        :param objective:                   str  -- описание тесткейса
+        :param parameters:                  list -- список параметров
+        :param precondition:                str  -- исходное состояние
+        :param priorityId:                  int  -- id приоритета
+        :param projectId:                   int  -- id проекта по умолчанию подтягивается из родительского класса
+        :param statusId:                    int  -- id статуса из статус модели
+        :param testData:                    list -- список тестовых данных
+        :return: Response object
+        """
+
+        if fields.get("id") is None:
             try:
-                case_id = self.search(name, key).json()["results"][0]["id"]
+                case_id = self.search(fields.get('name', ''), key).json()["results"][0]["id"]
             except KeyError as error:
-                raise KeyError("Тест кейс не найден!") from error
+                raise KeyError("Тест кейс не найден или было найдено более одного!") from error
+        else:
+            case_id = fields.get("id")
 
-        json = {
-            "id": 21828,
-            "projectId": int(self.__project_id),
-            "name": "asdasdsd",
-            "testData": [],
-            "parameters": []}
-        return self.__request.put(f'{self.__url}/rest/tests/1.0/testcase/{case_id}', json=json)
+        case = self._fill_case_model(**fields)
 
-    # def create(self, name=None, objective=None, precondition=None, owner=None) -> Response:
-    #     case = copy.deepcopy(self.CASE_MODEL)
-    #     json = {
-    #         "projectId": int(self.__project_id),
-    #         "name": name,
-    #         "objective": objective,
-    #         "precondition": precondition,
-    #         "owner": self.__login,
-    #         "folderId": 5650,  # TODO ее надо получать с помощью метода
-    #         "statusId": 1625,  # TODO 1625 automated #733 draft сделать класс с константами
-    #         "priorityId": 1402,  # TODO Normal  сделать класс с приоритетами
-    #         "testScript": {
-    #             "stepByStepScript": {
-    #                 "steps": [
-    #                     {
-    #                         "index": 0,
-    #                         "description": "",
-    #                         "expectedResult": "",
-    #                         "customFieldValueIndex": {},
-    #                         "customFieldValues": []
-    #                     }
-    #                 ]
-    #             }
-    #         }
-    #     }
-    #     return self.__request.post(f'{self.__url}/rest/tests/1.0/testcase', json=json)
+        case.setdefault('id', case_id)
+        return self.__request.put(f'{self.__url}/rest/tests/1.0/testcase/{case_id}', json=case)
 
-    def create(self, name=None, objective=None, precondition=None, owner=None) -> Response:
-        case = copy.deepcopy(self.CASE_MODEL)
-        json = {
-            "projectId": int(self.__project_id),
-            "name": name,
-            "objective": objective,
-            "precondition": precondition,
-            "owner": self.__login,
-            "folderId": 5650,  # TODO ее надо получать с помощью метода
-            "statusId": 1625,  # TODO 1625 automated #733 draft сделать класс с константами
-            "priorityId": 1402,  # TODO Normal  сделать класс с приоритетами
-            "testScript": {
-                "stepByStepScript": {
-                    "steps": [
-                        {
-                            "index": 0,
-                            "description": "",
-                            "expectedResult": "",
-                            "customFieldValueIndex": {},
-                            "customFieldValues": []
-                        }
-                    ]
-                }
-            }
-        }
-        return self.__request.post(f'{self.__url}/rest/tests/1.0/testcase', json=json)
+    def create(self, **fields) -> Response:
+        """
+        Метод для создания тесткейса в проекте
+        :param componentId:                 int  -- поставить метку существующего компонента
+        :param estimatedTime:               int  -- время
+        :param id:                          int  -- id тесткейса
+        :param labels:                      list -- список меток тесткейса
+        :param name:                        str  -- название тесткейса
+        :param objective:                   str  -- описание тесткейса
+        :param parameters:                  list -- список параметров
+        :param precondition:                str  -- исходное состояние
+        :param priorityId:                  int  -- id приоритета
+        :param projectId:                   int  -- id проекта по умолчанию подтягивается из родительского класса
+        :param statusId:                    int  -- id статуса из статус модели
+        :param testData:                    list -- список тестовых данных
+        :return: Response object
+        """
+        case = self._fill_case_model(**fields)
+        case["projectId"] = int(self.__project_id) if fields.get("projectId") is None else fields.get("projectId")
+        case["folderId"] = self.__folder_id if self.__folder_id is not None else fields["folderId"]
+        case["owner"] = self.__login if fields.get("owner") is None else fields.get("owner")
+        return self.__request.post(f'{self.__url}/rest/tests/1.0/testcase', json=case)
+
+    def _fill_case_model(self, **fields):
+        case = dict()
+        for field, value in fields.items():
+            for k in self.CASE_MODEL:
+                if field == k:
+                    case.update({k: value})
+        return case
+
 
 class Folder:
     def __init__(self, zephyr):
