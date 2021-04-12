@@ -16,7 +16,6 @@ class ProjectConnect:
         :param project_id:              id проекта с тест кейсами
         :param login:                   jira логин
         :param password:                jira пароль
-        :param password:                jira пароль
         """
         self._url = url
         self._project_id = project_id
