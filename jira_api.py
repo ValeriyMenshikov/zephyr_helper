@@ -69,8 +69,8 @@ class Case(ProjectConnect):
                archived: str = 'false') -> Response:
         r"""
         Args:
-            name:   перечисление полей которые необходимо получить
-            key:    перечисление полей которые необходимо получить
+            name:   имя тест-кейса
+            key:    номер тест кейса, например PVZ-T1
             fields: перечисление полей которые необходимо получить
                  id, key, projectId, name, averageTime, estimatedTime, labels,
                  folderId, componentId, statusId, priorityId, lastTestResultStatus(name,i18nKey,color),
