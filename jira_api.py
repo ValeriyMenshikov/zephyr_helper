@@ -2,6 +2,33 @@ import pprint
 import requests
 from requests import Response
 
+LOGGER = True
+
+
+def logger(func):
+    global LOGGER
+    if LOGGER:
+        def wrapper(*args, **kwargs):
+            print('args'.center(40, '_'))
+            for num, value in enumerate(args, 1):
+                print(f'arg{num} -> {value}')
+            print('kwargs'.center(40, '_'))
+            for arg, value in kwargs.items():
+                print(f'{arg} -> {value}')
+            res = func(*args, **kwargs)
+            try:
+                print(f"""Request""".center(40, '_'))
+                print(f"""url: {res.request.url}\nbody: {res.request.body}""")
+                print("Response".center(40, '_'))
+                print(f"""status_code: {res.status_code}\njson: {pprint.pformat(res.json(), indent=2)}""")
+            except KeyError:
+                ...
+            return res
+
+        return wrapper
+    else:
+        return func
+
 
 class ProjectConnect:
     FIELDS = (
@@ -24,6 +51,35 @@ class ProjectConnect:
         self._session = requests.Session()
         self._session.auth = (self._login, self._password)
         self._session.headers = ('jira-project-id', self._project_id)
+
+    def _fill_model(self, model, fill_owner=False, **fields) -> dict:
+        """
+        Вспомогательный метод для заполнения json модели тест кейса
+        :param fields: набор **kwargs
+        """
+        # TODO: Есть баг что если дать название поля которого нет в модели, то просто ничего не произойдет
+        case = dict()
+        for field, value in fields.items():
+            for k, v in model.items():
+                if field == k:
+                    self._validate_type(field, value, v)
+                    case.update({k: value})
+                    break
+        case["projectId"] = int(self._project_id) if fields.get("projectId") is None else fields.get("projectId")
+        if fill_owner:
+            case["owner"] = self._login if fields.get("owner") is None else fields.get("owner")
+        return case
+
+    @staticmethod
+    def _validate_type(field, val1=None, val2=None):
+        value1_type, value2_type = None, None
+        for obj_type in [dict, int, list, str, tuple, set]:
+            if isinstance(val1, obj_type):
+                value1_type = obj_type
+            if isinstance(val2, obj_type):
+                value2_type = obj_type
+        if not value1_type == value2_type:
+            raise TypeError(f"Поле <{field}> должно иметь тип {value2_type}")
 
 
 class Case(ProjectConnect):
@@ -58,6 +114,7 @@ class Case(ProjectConnect):
         "testScript": TEST_SCRIPT_MODEL
     }
 
+    @logger
     def search(self,
                name: str = '',
                key: str = '',
@@ -86,7 +143,7 @@ class Case(ProjectConnect):
             fields = str(','.join(['id', 'key', 'projectId', 'name', 'folderId']))
 
         query = f'testCase.projectId IN ({self._project_id}) '
-        query = query + f'AND testCase.key = "{key}"' if key else query
+        query = query + f'AND testCase.key = "{key}" ' if key else query
         query = query + f'AND testCase.name = "{name}"' if name else query
 
         if jql:
@@ -99,9 +156,9 @@ class Case(ProjectConnect):
             ('query', query),
             ('startAt', start_at),
         )
-        cases = self._session.get(f'{self._url}/rest/tests/1.0/testcase/search', params=params)
-        return cases
+        return self._session.get(f'{self._url}/rest/tests/1.0/testcase/search', params=params)
 
+    @logger
     def update(self, id=None, key: str = '', **fields) -> Response:
         """
         Метод для обновления параметнов тест-кейса\n
@@ -124,7 +181,7 @@ class Case(ProjectConnect):
 
         if not id and key:
             try:
-                case_id = self.search(fields.get('name', ''), key).json()["results"][0]["id"]
+                case_id = self.search(key=key).json()["results"][0]["id"]
             except KeyError as error:
                 raise KeyError("Тест кейс не найден или было найдено более одного!") from error
         elif id:
@@ -132,14 +189,11 @@ class Case(ProjectConnect):
         else:
             raise KeyError("id или Key должны быть указаны обязательно!")
 
-        case = self._fill_case_model(id=case_id, **fields)
+        case = self._fill_model(model=self.CASE_MODEL, fill_owner=True, id=case_id, **fields)
         case.setdefault('id', case_id)
-        response = self._session.put(f'{self._url}/rest/tests/1.0/testcase/{case_id}', json=case)
-        pprint.pprint(response.request.body)
-        pprint.pprint(response.request.url)
+        return self._session.put(f'{self._url}/rest/tests/1.0/testcase/{case_id}', json=case)
 
-        return response
-
+    @logger
     def create(self, name, folderId, **fields) -> Response:
         """
         Метод для создания тест-кейса\n
@@ -157,73 +211,76 @@ class Case(ProjectConnect):
             statusId:       Optional[int]
             testData:       Optional[list]
         """
-        case = self._fill_case_model(name=name, folderId=folderId, **fields)
-        # case["folderId"] = self.__folder_id if self.__folder_id is not None else fields["folderId"]
+        case = self._fill_model(model=self.CASE_MODEL, fill_owner=True, name=name, folderId=folderId, **fields)
         return self._session.post(f'{self._url}/rest/tests/1.0/testcase', json=case)
-
-    def _fill_case_model(self, **fields) -> dict:
-        """
-        Вспомогательный метод для заполнения json модели тест кейса
-        :param fields: набор **kwargs
-        """
-        case = dict()
-        for field, value in fields.items():
-            for k, v in self.CASE_MODEL.items():
-                if field == k:
-                    self._validate_type(field, value, v)
-                    case.update({k: value})
-                    break
-        case["projectId"] = int(self._project_id) if fields.get("projectId") is None else fields.get("projectId")
-        case["owner"] = self._login if fields.get("owner") is None else fields.get("owner")
-        return case
-
-    @staticmethod
-    def _validate_type(field, val1=None, val2=None):
-        value1_type, value2_type = None, None
-        for obj_type in [dict, int, list, str, tuple, set]:
-            if isinstance(val1, obj_type):
-                value1_type = obj_type
-            if isinstance(val2, obj_type):
-                value2_type = obj_type
-        if not value1_type == value2_type:
-            raise TypeError(f"Поле <{field}> должно иметь тип {value2_type}")
 
 
 class Folder(ProjectConnect):
-    def create(self, name) -> Response:
-        json = {
-            "index": 1,
-            "name": name,
-            "projectId": int(self._project_id)
-        }
+    FOLDER_MODEL = {
+        "index": int(),
+        "name": str(),
+        "projectId": int(),
+        "parentId": int()  # 5650
+    }
+
+    @logger
+    def create(self, name: str = None, parent_id: int = None) -> Response:
+        """
+        Метод для создания новой папки
+        :param name: Имя новой папки
+        :param parent_id: Идентификатор папки в которой создаем
+        :return:
+        """
+        json = self._fill_model(model=self.FOLDER_MODEL, name=name, parentId=parent_id)
         return self._session.post(url=f'{self._url}/rest/tests/1.0/folder/testcase', json=json)
 
-    def sub_folder_create(self, name, parent_id=5650) -> Response:
-        json = {
-            "index": 3,
-            "name": name,
-            "projectId": int(self._project_id),
-            "parentId": parent_id}
-
-        return self._session.post(f'{self._url}/rest/tests/1.0/folder/testcase', json=json)
-
+    @logger
     def tree(self) -> Response:
+        """
+        Метод отображает дерево создеримого в проекте
+        :return:
+        """
         return self._session.get(f'{self._url}/rest/tests/1.0/project/{self._project_id}/foldertree/testcase')
 
-    def content(self) -> Response:
+    @logger
+    def content(self,
+                folder_id: int = None,
+                fields: str = None,
+                jql: str = None,
+                max_results: int = 100,
+                start_at: int = 0,
+                archived: str = 'false') -> Response:
+        """
+        Метод для отображения содержимого выбранной папки
+        :param folder_id: id выбранной папки
+        :param fields: поля для отображения
+        :param jql: свой jql запрос для фильтрации
+        :param max_results: сколько вывести
+        :param start_at: сколько пропустить
+        :param archived: показывать заархивированные или нет
+        :return:
+        """
+        if fields == 'all':
+            fields = str(','.join(self.FIELDS))
+        elif fields is None:
+            fields = str(','.join(['id', 'key', 'projectId', 'name', 'folderId']))
+
+        query = f'testCase.projectId IN ({self._project_id}) AND testCase.folderTreeId IN ({folder_id}) ORDER BY testCase.id ASC'
+        if jql:
+            query = jql
+
         params = (
-            ('archived', 'false'),
-            # ('fields', 'id,key,projectId,name,averageTime,estimatedTime,labels,folderId,componentId,statusId,priorityId,lastTestResultStatus(name,i18nKey,color),majorVersion,createdOn,createdBy,updatedOn,updatedBy,customFieldValues,owner'),
-            ('maxResults', '100'),
-            ('query',
-             f'testCase.projectId IN ({self._project_id}) AND testCase.folderTreeId IN (27803) ORDER BY testCase.id ASC'),
-            ('sort', 'id:asc'),
-            ('startAt', '0'),
+            ('archived', archived),
+            ('fields', fields),
+            ('maxResults', max_results),
+            ('query', query),
+            ('startAt', start_at),
         )
         return self._session.get(f'{self._url}/rest/tests/1.0/testcase/search', params=params)
 
 
 class StatusModel(ProjectConnect):
+    @logger
     def case(self) -> Response:
         """
         Метод получения возможных статусов тесткейсов
@@ -231,6 +288,7 @@ class StatusModel(ProjectConnect):
         """
         return self._session.get(f'{self._url}/rest/tests/1.0/project/{self._project_id}/testcasestatus')
 
+    @logger
     def result(self) -> Response:
         """
         Метод получения возможных статусов прохождения тесткейсов
@@ -238,6 +296,7 @@ class StatusModel(ProjectConnect):
         """
         return self._session.get(f'{self._url}/rest/tests/1.0/project/{self._project_id}/testresultstatus')
 
+    @logger
     def priority(self) -> Response:
         """
         Метод получения приоритетов тесткейсов
