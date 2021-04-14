@@ -17,5 +17,5 @@ class TestCaseResult:
 
 class TestCasePriority:
     HIGH = 1401
-    NORMAL = 1401
-    LOW = 1401
+    NORMAL = 1402
+    LOW = 1403
