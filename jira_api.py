@@ -2,7 +2,7 @@ import pprint
 import requests
 from requests import Response
 
-LOGGER = True
+LOGGER = False
 
 
 def logger(func):
@@ -118,6 +118,7 @@ class Case(ProjectConnect):
     def search(self,
                name: str = '',
                key: str = '',
+               folder_id = None,
                fields: str = None,
                jql: str = None,
                max_results: int = 40,
@@ -145,6 +146,7 @@ class Case(ProjectConnect):
         query = f'testCase.projectId IN ({self._project_id}) '
         query = query + f'AND testCase.key = "{key}" ' if key else query
         query = query + f'AND testCase.name = "{name}"' if name else query
+        query = query + f'AND testCase.folderTreeId = {folder_id}' if folder_id else query
 
         if jql:
             query = jql
@@ -237,7 +239,7 @@ class Folder(ProjectConnect):
     @logger
     def tree(self) -> Response:
         """
-        Метод отображает дерево создеримого в проекте
+        Метод отображает дерево содержимого в проекте
         :return:
         """
         return self._session.get(f'{self._url}/rest/tests/1.0/project/{self._project_id}/foldertree/testcase')
