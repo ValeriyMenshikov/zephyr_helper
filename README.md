@@ -53,4 +53,5 @@ test_status = tms.StatusModel.case()
 
 ```
 Menshikov Valeriy
+valeriy.menshikov.1989@gmail.com
 ```
